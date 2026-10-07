@@ -6,6 +6,33 @@ End-to-end machine learning pipeline for predicting ICU deterioration from the *
 
 > **Research prototype only.** This system was developed on retrospective MIMIC-IV data and has not been clinically validated or approved for patient-care decisions.
 
+## Application demo
+
+The repository includes a Streamlit **ICU Early Warning System** that turns the modelling pipeline into an interpretable decision-support prototype.
+
+**Population Risk Monitor**
+- ranks cases by calibrated 24-hour deterioration risk
+- supports interactive moderate/high alert thresholds
+- provides an at-a-glance priority review queue
+
+**Patient Explanation**
+- displays an individual calibrated risk estimate
+- separates factors increasing and decreasing predicted risk
+- renders a patient-level SHAP waterfall with readable clinical feature labels
+
+**Model Card**
+- documents intended use, model choice, held-out performance and limitations directly inside the application
+
+> **Public-demo design:** MIMIC-IV patient-level artifacts are intentionally not committed. A public deployment should use synthetic demonstration records rather than restricted MIMIC-derived records.
+
+To run the full authenticated version after generating local artifacts:
+
+```bash
+streamlit run app.py
+```
+
+A repository screenshot will be added after the synthetic public-demo mode is implemented so the screenshot reflects the final recruiter-facing experience.
+
 ## What this project demonstrates
 
 - **Temporal prediction design:** features are restricted to the first 6 ICU hours, with deterioration evaluated over 24-, 36-, and 48-hour horizons.
