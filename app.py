@@ -25,7 +25,7 @@ st.markdown("""
 .hero {padding: 1.25rem 1.4rem; border: 1px solid rgba(127,127,127,.20); border-radius: 16px; margin-bottom: 1rem;}
 .eyebrow {font-size: .78rem; letter-spacing: .08em; text-transform: uppercase; opacity: .7; font-weight: 700;}
 .hero h1 {margin: .25rem 0 .45rem 0;}
-.hero p {font-size: 1.02rem; opacity: .82; margin-bottom: .25rem;}
+.hero p {font-size: 1.02rem; opacity: .82; margin-bottom: .25rem;}\n[data-testid="stMetric"] {box-shadow: 0 2px 10px rgba(0,0,0,.03);}\n[data-testid="stSidebar"] {border-right: 1px solid rgba(127,127,127,.12);}\n[data-baseweb="tab-list"] {gap: .65rem;}
 </style>
 """, unsafe_allow_html=True)
 
@@ -121,7 +121,7 @@ m1.metric("Observation window","First 6 h"); m2.metric("Prediction horizon","Nex
 m3.metric("Research ROC-AUC","0.825"); m4.metric("Research recall","73.6%")
 
 if demo_mode:
-    st.warning("SYNTHETIC DEMONSTRATION MODE — The profiles and displayed demo risk scores are hand-authored for interface demonstration. They are not MIMIC-IV records, are not derived from MIMIC-IV, and are not predictions from the MIMIC-trained model.")
+    st.warning("PUBLIC DEMO · SYNTHETIC DATA — Synthetic profiles and illustrative scores only. No MIMIC-IV patient data, MIMIC-derived patient artifacts, or trained MIMIC model is included.")
 else:
     st.info("LOCAL RESEARCH MODE — Restricted MIMIC-derived artifacts are loaded only from this local environment. Do not deploy these artifacts publicly.")
 
@@ -145,7 +145,7 @@ with monitor_tab:
     c3.metric("Moderate risk",f"{n_mod:,}"); c4.metric("Low risk",f"{len(monitor)-n_high-n_mod:,}")
     display=monitor[["display_id","calibrated_probability","risk_category"]].copy()
     display.calibrated_probability=display.calibrated_probability.map(lambda x:f"{x:.1%}")
-    display.columns=["Profile","24h displayed risk","Risk category"]
+    display.columns=["Profile","Illustrative risk score","Risk category"]
     st.subheader("Priority review queue")
     st.caption("In public demo mode these are synthetic interface examples, not real patients or model predictions.")
     st.dataframe(display,use_container_width=True,hide_index=True,height=360)
@@ -154,16 +154,16 @@ with patient_tab:
     selected_id=st.selectbox("Select profile",monitor.display_id.tolist())
     mrow=monitor.loc[monitor.display_id==selected_id].iloc[0]
     probability=float(mrow.calibrated_probability); category=risk_category(probability,moderate_threshold,high_threshold)
-    a,b,c=st.columns(3); a.metric("Displayed 24h risk",f"{probability:.1%}"); b.metric("Risk category",category); c.metric("Prediction horizon","Next 24 h")
+    a,b,c=st.columns(3); a.metric("Illustrative risk score" if demo_mode else "Predicted 24h risk",f"{probability:.1%}"); b.metric("Risk category",category); c.metric("Prediction horizon","Next 24 h")
     if demo_mode:
         st.subheader("Illustrative explanation")
         st.caption("The factors below are authored synthetic examples for demonstrating the intended explanation workflow; they are not SHAP outputs.")
         left,right=st.columns(2)
         with left:
-            st.markdown("**Factors increasing displayed risk**")
+            st.markdown("**Factors increasing illustrative score**")
             for item in mrow["drivers_up"]: st.write(f"↑ {item}")
         with right:
-            st.markdown("**Factors decreasing displayed risk**")
+            st.markdown("**Factors decreasing illustrative score**")
             for item in mrow["drivers_down"]: st.write(f"↓ {item}")
         st.subheader("Synthetic profile values")
         feature_cols=["age","heart_rate_last","sbp_last","resp_rate_last","spo2_last","lactate_last","creatinine_last","platelets_last","gcs_verbal_last"]
@@ -195,7 +195,7 @@ with model_tab:
     st.markdown("""
 **Research question** — Can information available in the first 6 ICU hours identify elevated deterioration risk over the following 24 hours?
 
-**Research pipeline** — Logistic Regression, Random Forest and XGBoost comparison; temporal leakage audits; isotonic probability calibration; global and patient-level SHAP.
+**Dataset & cohort** — MIMIC-IV v3.1; first ICU stay per patient with ≥12 hours ICU length of stay. The 24-hour analysis contains **46,982 eligible ICU stays**.\n\n**Temporal design** — Time-varying predictors are restricted to hours **0–6** after ICU admission. The primary outcome window is the subsequent **24 hours (6–30h)**.\n\n**Outcome** — Composite deterioration event defined from mortality, vasopressor requirement, or mechanical ventilation within the prediction window.\n\n**Research pipeline** — Logistic Regression, Random Forest and XGBoost comparison; explicit temporal leakage audits; isotonic probability calibration; global and patient-level SHAP.
 
 **Held-out research results** — ROC-AUC **0.825** · PR-AUC **0.716** · Recall **73.6%** · F1 **0.670**.
 
