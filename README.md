@@ -6,6 +6,12 @@ End-to-end machine learning pipeline for predicting ICU deterioration from the *
 
 > **Research prototype only.** This system was developed on retrospective MIMIC-IV data and has not been clinically validated or approved for patient-care decisions.
 
+### Explore the project
+
+**[Launch the live synthetic demo](https://anujatj0011-icu-deterioration-prediction-app-01bzpt.streamlit.app/)** · **[Technical guide](docs/TECHNICAL_GUIDE.md)** · **[Key findings](docs/KEY_FINDINGS.md)** · **[Execution guide](docs/EXECUTION_GUIDE.md)**
+
+The live Streamlit deployment is deliberately separated from the restricted research artifacts: it uses hand-authored synthetic profiles and illustrative scores while the repository documents the real MIMIC-IV modelling pipeline and aggregate research results.
+
 ## Application demo
 
 The repository includes a Streamlit **ICU Early Warning System** that turns the modelling pipeline into an interpretable decision-support prototype.
@@ -31,7 +37,7 @@ To run the full authenticated version after generating local artifacts:
 streamlit run app.py
 ```
 
-The app is now ready for a public Streamlit deployment using its synthetic demonstration mode. A screenshot and live-demo badge can be added after the deployed URL is available.
+**Live deployment:** [Open the ICU Early Warning System](https://anujatj0011-icu-deterioration-prediction-app-01bzpt.streamlit.app/)\n\nThe deployed application automatically uses Synthetic Demonstration Mode and does not package the restricted MIMIC-derived model or patient-level artifacts.
 
 ## What this project demonstrates
 
