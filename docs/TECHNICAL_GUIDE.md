@@ -130,105 +130,23 @@ Raw MIMIC-IV Data
 
 ### Feature Categories
 
-The system extracts and aggregates **~210 features** across multiple categories:
+The implemented pipeline builds its feature matrix from the following sources and transformations. The final matrix is approximately **210 columns** after aggregation and categorical encoding:
 
-#### 1. Vital Signs (from chartevents)
-```
-Features extracted: 5-8 aggregations × 6 vital sign types
+#### 1. Vital Signs (from `chartevents`)
 
-Vital Sign Types:
-├─ Heart Rate (HR)
-├─ Systolic Blood Pressure (SBP)
-├─ Diastolic Blood Pressure (DBP)
-├─ Mean Arterial Pressure (MAP)
-├─ Respiratory Rate (RR)
-├─ Temperature (Temp)
-├─ Oxygen Saturation (SpO2)
-└─ Glasgow Coma Scale (GCS)
+The extraction stage uses heart rate, systolic and diastolic blood pressure, respiratory rate, SpO2, temperature, and Glasgow Coma Scale eye/verbal/motor components. For each available signal, preprocessing computes **mean, minimum, maximum, count, and latest value** within the 0–6 hour observation window.
 
-Aggregations (per vital sign):
-├─ Mean:   average value over 6 hours
-├─ Min:    minimum value observed
-├─ Max:    maximum value observed
-├─ Last:   most recent measurement
-├─ Count:  number of measurements (missingness)
-├─ StdDev: standard deviation (variability)
-└─ Slope:  trend over time
-```
+#### 2. Laboratory Values (from `labevents`)
 
-**Total vital features**: ~50-60
-
-#### 2. Laboratory Values (from labevents)
-```
-Lab Types:
-├─ Lactate          (metabolic distress marker)
-├─ White Blood Cells (WBC) (infection marker)
-├─ Creatinine       (kidney function)
-├─ Platelets        (clotting marker)
-├─ Hemoglobin       (anemia)
-├─ Potassium (K)    (electrolyte)
-├─ Sodium (Na)      (electrolyte)
-├─ Chloride (Cl)    (electrolyte)
-├─ Bicarbonate      (acid-base status)
-├─ pH               (acid-base status)
-├─ Glucose          (metabolic status)
-├─ Albumin          (nutritional status)
-└─ Bilirubin        (liver function)
-
-Aggregations (per lab):
-├─ Mean
-├─ Min
-├─ Max
-├─ Last
-└─ Count (# of measurements)
-```
-
-**Total lab features**: ~100-120
+The implemented laboratory set is **lactate, WBC, creatinine, platelets, bicarbonate, potassium, and sodium**. Each is aggregated using **mean, minimum, maximum, count, and latest value** within the observation window.
 
 #### 3. Derived Features
-```
-Physiologic Ratios:
-├─ Shock Index = Heart Rate / Systolic BP
-│  (hemodynamic distress indicator)
-├─ SOFA components (partial):
-│  ├─ Respiratory: SpO2/FiO2 ratio (if ventilated)
-│  ├─ Renal: Creatinine level
-│  └─ Hematologic: Platelet count
-└─ Base Excess (calculated from pH, HCO3)
 
-Missingness Indicators:
-├─ Has_HR (1 if HR measured, 0 if missing)
-├─ Has_Lactate (1 if lactate measured, 0 if missing)
-├─ Has_WBC (1 if WBC measured, 0 if missing)
-├─ ... (binary flag for each feature type)
-└─ Missing_Features_Count (total # missing)
-
-Temporal Features:
-├─ Hours_Since_Admission (0-6 hours)
-├─ Measurement_Frequency (measurements per hour)
-└─ Data_Completeness (% of expected data)
-```
-
-**Total derived features**: ~20-30
+The current implementation adds **shock index = latest heart rate / latest systolic blood pressure**. Missingness is retained in the raw feature matrix and handled after the train/test split during model development; missing-indicator columns are created there, and medians are learned from the training split only.
 
 #### 4. Demographics & Admission Data
-```
-Static Patient Characteristics:
-├─ Age (years)
-├─ Gender (M/F)
-├─ Ethnicity (one-hot encoded)
-├─ BMI (if available)
-└─ Comorbidities (selected ICD codes)
 
-Admission Characteristics:
-├─ Admission Type (Emergency, Urgent, Planned)
-├─ Care Unit (MICU, SICU, CCU, etc.) - one-hot
-├─ Primary Diagnosis (ICD code)
-├─ Severity Score (APACHE estimated from early data)
-└─ Prior Hospital Visits (count)
-```
-
-**Total demographic features**: ~20-30
+The implemented static variables are **age, gender, first care unit, and admission type**. Gender is encoded as a binary feature; care unit and admission type are one-hot encoded. The pipeline deliberately does **not** use hospitalization-wide diagnosis counts because their availability inside the 0–6 hour observation window cannot be established safely from the selected table.
 
 ### Feature Aggregation Strategy
 
@@ -267,7 +185,7 @@ def aggregate_features(measurements_df, feature_name):
 
 ### Outlier Clipping
 
-Physiologically implausible values are clipped (winsorized) to defined ranges:
+Physiologically implausible readings are **removed before aggregation** using feature-specific plausible ranges. They are not winsorized to the boundary.
 
 ```python
 # Outlier clipping ranges
@@ -340,7 +258,7 @@ X_test[f'{feature}_missing'] = X_test[f'{feature}_missing'].fillna(0)
 - **Use**: Performance benchmark
 
 #### 3. XGBoost (Primary)
-- **Purpose**: Production model
+- **Purpose**: Primary research model
 - **Pros**: Best performance, fast inference, feature importance
 - **Cons**: Requires hyperparameter tuning
 - **Use**: Main prediction model
@@ -379,7 +297,7 @@ ICU Admission (time = 0h)
 
 ```
 ┌──────────────────────────────────────────────────┐
-│              PRODUCTION SYSTEM                   │
+│              RESEARCH PROTOTYPE                  │
 ├──────────────────────────────────────────────────┤
 │                                                  │
 │  Input: Patient data (0-6h window)               │
@@ -406,7 +324,7 @@ ICU Admission (time = 0h)
 │         ▼                                        │
 │  ┌──────────────────────────┐                   │
 │  │ XGBoost Model            │                   │
-│  │  - 400 trees            │                   │
+│  │  - tuned boosting model │                   │
 │  │  - max_depth=4          │                   │
 │  │  - Raw probability      │                   │
 │  └──────────────────────────┘                   │
@@ -421,7 +339,7 @@ ICU Admission (time = 0h)
 │         ▼                                        │
 │  Output: Deterioration Risk Score (0-100%)     │
 │         + Feature Explanations (SHAP)           │
-│         + Confidence Metrics                    │
+│         + Patient-level SHAP explanation        │
 │                                                  │
 └──────────────────────────────────────────────────┘
 ```
