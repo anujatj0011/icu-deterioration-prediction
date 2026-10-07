@@ -18,28 +18,19 @@ A detailed step-by-step guide for running the machine learning pipeline to predi
 ## Quick Start
 
 ```bash
-# 1. Set up environment
 python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-
-# 2. Install dependencies
+source venv/bin/activate  # Windows: venv\\Scripts\\activate
 pip install --upgrade pip
-pip install pandas numpy scikit-learn xgboost matplotlib seaborn shap joblib google-cloud-bigquery
+pip install -r requirements.txt
 
-# 3. Configure credentials
-export GOOGLE_APPLICATION_CREDENTIALS="/path/to/service-account-key.json"
+# Configure Google Cloud credentials and project settings first.
+python run_pipeline.py
 
-# 4. Run pipeline (in order)
-python 01_data_extraction.py
-python 02_preprocessing.py
-python 03_leakage_audit.py --feature-only
-python 04_prediction_horizons.py
-python 03_leakage_audit.py --label-only
-python 05_horizon_sensitivity.py
-python 06_model_evaluation.py
-python 07_patient_explanations.py
-python 08_prepare_app.py
+# After app artifacts are generated:
+streamlit run app.py
 ```
+
+`run_pipeline.py` executes the numbered scripts from `src/` in the intended order and stops if a leakage audit fails.
 
 ---
 
@@ -84,9 +75,9 @@ python 08_prepare_app.py
 ### 3. Local Environment Setup
 
 ```bash
-# Create project directory
-mkdir icu-deterioration
-cd icu-deterioration
+# Clone the repository
+git clone https://github.com/anujatj0011/icu-deterioration-prediction.git
+cd icu-deterioration-prediction
 
 # Create virtual environment
 python -m venv venv
@@ -94,7 +85,7 @@ source venv/bin/activate  # On Windows: venv\Scripts\activate
 
 # Install dependencies
 pip install --upgrade pip
-pip install pandas numpy scikit-learn xgboost matplotlib seaborn shap joblib google-cloud-bigquery
+pip install -r requirements.txt
 
 # Create required directories
 mkdir -p ./data ./results
@@ -102,19 +93,14 @@ mkdir -p ./data ./results
 
 ### 4. Update Configuration
 
-Edit each Python script and update your GCP project ID:
+Update the GCP project configuration used by the BigQuery extraction/label scripts:
 ```python
 PROJECT_ID = "your-actual-gcp-project-id"  # Line typically near top of each script
 ```
 
-### 5. Download MIMIC-IV Data
+### 5. MIMIC-IV access
 
-After PhysioNet approval:
-1. Go to [MIMIC-IV v3.1 Download Page](https://physionet.org/content/mimiciv/3.1/)
-2. Download the following directories:
-   - `hosp/` (contains: patients.csv, admissions.csv, diagnoses_icd.csv)
-   - `icu/` (contains: icustays.csv, chartevents.csv, labevents.csv, d_items.csv)
-3. Extract to `./mimic-iv-3.1/` directory in your project folder
+The implemented extraction and label stages query the credentialed MIMIC-IV v3.1 BigQuery tables. You must have authorised PhysioNet access and configure Google Cloud credentials before running those stages. **No MIMIC-IV patient-level data is distributed with this repository.**
 
 ---
 
@@ -144,7 +130,7 @@ Phase 4: Explainability & Deployment (Steps 7-8)
 
 **Command:**
 ```bash
-python 01_data_extraction.py
+python src/01_data_extraction.py
 ```
 
 **Purpose:**
@@ -197,7 +183,7 @@ Temporal design: features=0-6h | outcomes=>6-30h
 
 **Command:**
 ```bash
-python 02_preprocessing.py
+python src/02_preprocessing.py
 ```
 
 **Purpose:**
@@ -212,11 +198,9 @@ python 02_preprocessing.py
    - Verify all chartevents timestamps are within 0-6 hours of ICU admission
    - Verify all labevents timestamps are within 0-6 hours
 
-2. **Outlier Clipping**
-   - Heart rate: 20-200 bpm
-   - Blood pressure: 40-300 mmHg
-   - Temperature: 32-43°C
-   - Oxygen saturation: 50-100%
+2. **Outlier filtering**
+   - Feature-specific plausible ranges are applied before aggregation
+   - Readings outside those ranges are removed rather than clipped to a boundary
 
 3. **Feature Aggregation** (for each measurement type)
    - `mean` - Average value
@@ -227,7 +211,7 @@ python 02_preprocessing.py
 
 4. **Derived Features**
    - **Shock Index**: Heart Rate / Systolic BP (hemodynamic distress)
-   - **Missing Indicators**: Binary flags for unmeasured values
+   - Missing-value indicators are added during model development after the train/test split
 
 5. **Categorical Encoding**
    - Care unit: One-hot encoded
@@ -265,7 +249,7 @@ Handling missing values...
 
 **Command:**
 ```bash
-python 03_leakage_audit.py --feature-only
+python src/03_leakage_audit.py --feature-only
 ```
 
 **Purpose:**
@@ -301,7 +285,7 @@ Feature-only audit: PASSED ✓
 
 **Command:**
 ```bash
-python 04_prediction_horizons.py
+python src/04_prediction_horizons.py
 ```
 
 **Purpose:**
@@ -364,7 +348,7 @@ Defining prediction horizons...
 
 **Command:**
 ```bash
-python 03_leakage_audit.py --label-only
+python src/03_leakage_audit.py --label-only
 ```
 
 **Purpose:**
@@ -394,7 +378,7 @@ Label-only audit: PASSED ✓
 
 **Command:**
 ```bash
-python 05_horizon_sensitivity.py
+python src/05_horizon_sensitivity.py
 ```
 
 **Purpose:**
@@ -447,7 +431,7 @@ Training XGBoost for 48-hour horizon...
 
 **Command:**
 ```bash
-python 06_model_evaluation.py
+python src/06_model_evaluation.py
 ```
 
 **Purpose:**
@@ -545,7 +529,7 @@ Model Performance Summary (24-hour horizon):
 
 **Command:**
 ```bash
-python 07_patient_explanations.py
+python src/07_patient_explanations.py
 ```
 
 **Purpose:**
@@ -623,7 +607,7 @@ Generating explanation plots...
 
 **Command:**
 ```bash
-python 08_prepare_app.py
+python src/08_prepare_app.py
 ```
 
 **Purpose:**
@@ -822,7 +806,7 @@ After running the pipeline, verify:
 2. Check for error messages in console output
 3. Manually run problematic step:
    ```bash
-   python 06_model_evaluation.py  # if missing ROC curves
+   python src/06_model_evaluation.py  # if missing ROC curves
    ```
 
 ---
