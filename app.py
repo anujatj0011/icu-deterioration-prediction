@@ -112,13 +112,15 @@ else:
 
 st.markdown("""
 <div class="hero"><div class="eyebrow">Explainable machine learning · research prototype</div>
-<h1>ICU Early Warning System</h1>
+<h1>ICU Early Warning <span style="color:#c8675c">System</span></h1>
 <p>Estimate deterioration risk from information available during the first 6 hours of ICU admission, then inspect the factors driving each prediction.</p></div>
 """, unsafe_allow_html=True)
 
 m1,m2,m3,m4=st.columns(4)
-m1.metric("Observation window","First 6 h"); m2.metric("Prediction horizon","Next 24 h")
-m3.metric("Research ROC-AUC","0.825"); m4.metric("Research recall","73.6%")
+m1.metric("◷  Observation window","First 6 h")
+m2.metric("→  Prediction horizon","Next 24 h")
+m3.metric("◎  Research ROC-AUC","0.825")
+m4.metric("↗  Research recall","73.6%")
 
 if demo_mode:
     st.warning("PUBLIC DEMO · SYNTHETIC DATA — Synthetic profiles and illustrative scores only. No MIMIC-IV patient data, MIMIC-derived patient artifacts, or trained MIMIC model is included.")
@@ -146,7 +148,11 @@ with monitor_tab:
     display=monitor[["display_id","calibrated_probability","risk_category"]].copy()
     display.calibrated_probability=display.calibrated_probability.map(lambda x:f"{x:.1%}")
     display.columns=["Profile","Illustrative risk score","Risk category"]
-    st.subheader("Priority review queue")
+    st.markdown("### Priority review queue")
+    if demo_mode:
+        chart = monitor[["display_id","calibrated_probability"]].copy().set_index("display_id")
+        st.caption("Illustrative risk landscape")
+        st.bar_chart(chart, height=230, use_container_width=True)
     st.caption("In public demo mode these are synthetic interface examples, not real patients or model predictions.")
     st.dataframe(display,use_container_width=True,hide_index=True,height=360)
 
@@ -156,7 +162,7 @@ with patient_tab:
     probability=float(mrow.calibrated_probability); category=risk_category(probability,moderate_threshold,high_threshold)
     a,b,c=st.columns(3); a.metric("Illustrative risk score" if demo_mode else "Predicted 24h risk",f"{probability:.1%}"); b.metric("Risk category",category); c.metric("Prediction horizon","Next 24 h")
     if demo_mode:
-        st.subheader("Illustrative explanation")
+        st.markdown("### What is shaping this illustrative score?")
         st.caption("The factors below are authored synthetic examples for demonstrating the intended explanation workflow; they are not SHAP outputs.")
         left,right=st.columns(2)
         with left:
@@ -165,7 +171,7 @@ with patient_tab:
         with right:
             st.markdown("**Factors decreasing illustrative score**")
             for item in mrow["drivers_down"]: st.write(f"↓ {item}")
-        st.subheader("Synthetic profile values")
+        st.markdown("### Synthetic profile snapshot")
         feature_cols=["age","heart_rate_last","sbp_last","resp_rate_last","spo2_last","lactate_last","creatinine_last","platelets_last","gcs_verbal_last"]
         rows=[]
         for f in feature_cols:
