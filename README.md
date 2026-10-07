@@ -1,409 +1,192 @@
-# Explainable AI for Early ICU Deterioration Prediction 
+# Explainable AI for Early ICU Deterioration Prediction
 
+End-to-end machine learning pipeline for predicting ICU deterioration from the **first 6 hours of an ICU admission**, using MIMIC-IV v3.1. The project focuses on a problem that matters in real predictive systems: making useful predictions early while preventing temporal leakage and keeping model outputs interpretable.
 
-A machine learning pipeline for predicting ICU patient deterioration using clinical data from MIMIC-IV. This system uses a 6-hour observation window to predict deterioration events (mortality, vasopressor requirement, mechanical ventilation) across multiple prediction horizons.
+**46,982 ICU stays · ~210 engineered features · XGBoost · ROC-AUC 0.825 · PR-AUC 0.716 · Recall 73.6% · SHAP · probability calibration**
 
----
+> **Research prototype only.** This system was developed on retrospective MIMIC-IV data and has not been clinically validated or approved for patient-care decisions.
 
-## ⚠️ IMPORTANT: PhysioNet Data Confidentiality Notice
+## What this project demonstrates
 
-**This GitHub repository does NOT contain the MIMIC-IV dataset.** Due to strict confidentiality and data protection policies enforced by PhysioNet, **we cannot and will not provide the dataset in any format** (raw files, parquet, CSV, or any other form).
+- **Temporal prediction design:** features are restricted to the first 6 ICU hours, with deterioration evaluated over 24-, 36-, and 48-hour horizons.
+- **Leakage controls:** dedicated feature- and label-level audits check temporal integrity before modelling.
+- **Model comparison:** Logistic Regression, Random Forest and XGBoost are evaluated rather than presenting a single model in isolation.
+- **Imbalanced classification:** performance is evaluated with recall, F1, ROC-AUC and PR-AUC alongside accuracy.
+- **Probability calibration:** isotonic calibration is used so predicted risk is more meaningful than an uncalibrated class score.
+- **Explainability:** global and patient-level SHAP analyses show which variables drive predictions.
+- **Prototype delivery:** a Streamlit risk monitor turns model outputs into an interpretable workflow rather than stopping at a notebook.
 
-### Dataset Access Requirements
+## 24-hour results
 
-To use this pipeline, you MUST:
+| Model | Accuracy | Precision | Recall | F1 | ROC-AUC | PR-AUC |
+|---|---:|---:|---:|---:|---:|---:|
+| Logistic Regression | 0.742 | 0.603 | 0.731 | 0.661 | 0.812 | 0.692 |
+| Random Forest | **0.755** | **0.628** | 0.701 | 0.663 | 0.818 | 0.702 |
+| **XGBoost** | 0.751 | 0.615 | **0.736** | **0.670** | **0.825** | **0.716** |
 
-1. **Register at [PhysioNet](https://physionet.org/register/)** with institutional affiliation
-2. **Request access to [MIMIC-IV v3.1](https://physionet.org/content/mimiciv/3.1/)**
-3. **Complete credentialing** (typically 24-48 hours)
-4. **Accept the MIMIC-IV Data Use Agreement**
-5. **Download the data directly from PhysioNet** following their instructions
+XGBoost was selected as the primary model because it provided the strongest overall discrimination and PR-AUC while retaining the highest recall of the three models. In this use case, missed deterioration events are particularly important, so accuracy alone is not an adequate selection criterion.
 
-### What Can Be Shared
+![ROC curves comparing the three models](results/roc_curves_full.png)
 
-This repository contains:
-- ✅ All Python scripts for data processing, modeling, and evaluation
-- ✅ Model architecture and hyperparameter specifications
-- ✅ Analysis code and visualization scripts
-- ✅ Reproducibility guidance and documentation
-- ✅ Results, plots, and performance metrics (in `results/` folder)
+### Prediction-horizon sensitivity
 
-### What Cannot Be Shared
+| Horizon | ICU stays | Positive rate | Recall | F1 | ROC-AUC | PR-AUC |
+|---|---:|---:|---:|---:|---:|---:|
+| 24 h | 46,982 | 34.4% | 0.736 | 0.670 | 0.825 | 0.716 |
+| 36 h | 40,099 | 42.3% | 0.727 | 0.707 | 0.819 | 0.764 |
+| 48 h | 33,891 | 51.9% | 0.725 | 0.738 | 0.813 | 0.815 |
 
-This repository does NOT contain:
-- ❌ MIMIC-IV raw data files (patients.csv, admissions.csv, chartevents.csv, etc.)
-- ❌ Processed patient data or feature matrices
-- ❌ Any identifiable or de-identified patient records
-- ❌ Any derived datasets containing patient information
+![XGBoost horizon sensitivity](results/horizon_sensitivity_roc.png)
 
-**If you attempt to share this repository with MIMIC-IV data, you violate PhysioNet's data use agreement and federal HIPAA regulations.**
+## System design
 
----
-
-## Table of Contents
-
-1. [Quick Start](#quick-start)
-2. [Overview](#overview)
-3. [Setup & Prerequisites](#setup--prerequisites)
-4. [Pipeline Architecture](#pipeline-architecture)
-5. [Execution Guide](#execution-guide)
-7. [Clinical Disclaimer](#clinical-disclaimer)
-8. [Support](#support)
-
----
-
-## Quick Start
-
-```bash
-# 1. Clone and setup
-python -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-
-# 2. Configure credentials
-export GOOGLE_APPLICATION_CREDENTIALS="/path/to/key.json"
-
-# 3. Download MIMIC-IV from PhysioNet (REQUIRED)
-# See "Setup & Prerequisites" section below
-
-# 4. Run pipeline
-python 01_data_extraction.py
-python 02_preprocessing.py
-python 03_leakage_audit.py --feature-only
-python 04_prediction_horizons.py
-python 03_leakage_audit.py --label-only
-python 05_horizon_sensitivity.py
-python 06_model_evaluation.py
-python 07_patient_explanations.py
-python 08_prepare_app.py
+```text
+MIMIC-IV v3.1
+      │
+      ▼
+Cohort construction
+      │
+      ▼
+0–6 h vitals, labs & demographics
+      │
+      ▼
+Preprocessing & feature engineering
+      │
+      ├──► Feature leakage audit
+      │
+      ▼
+24 / 36 / 48 h deterioration labels
+      │
+      ├──► Label leakage audit
+      │
+      ▼
+LR / Random Forest / XGBoost
+      │
+      ▼
+Evaluation + probability calibration
+      │
+      ▼
+Global & patient-level SHAP
+      │
+      ▼
+Streamlit risk-monitor prototype
 ```
 
----
+A deterioration event is defined from mortality, vasopressor requirement and mechanical ventilation. The design intentionally separates the **observation window** from the **prediction horizon** so future information cannot become a predictor.
 
-## Overview
+## Explainability
 
-### Objective
-Predict ICU patient deterioration within 24, 36, and 48 hours using only data from the first 6 hours of ICU admission. This enables early clinical intervention and resource allocation.
+SHAP analysis is used both globally and at individual-patient level. Important model drivers include lactate, neurological status (GCS), systolic blood pressure and respiratory rate.
 
-### Key Features
-- **Rigorous Temporal Design**: 6-hour observation window → 24-48 hour prediction windows
-- **Multiple Deterioration Events**: Mortality, vasopressor initiation, mechanical ventilation
-- **Leakage Prevention**: Comprehensive audit framework to prevent information leakage
-- **Explainability**: SHAP-based patient-level explanations for clinical interpretability
-- **Model Calibration**: Isotonic regression for probability calibration
+![Global SHAP feature importance](results/shap_feature_importance_full.png)
 
-### Data Source
-- **Dataset**: MIMIC-IV v3.1 (PhysioNet)
-- **Cohort**: First ICU stay per patient with ≥12 hours length of stay
-- **Features**: Vital signs, laboratory values, demographics
-- **Access**: Requires PhysioNet credentialing and direct download from PhysioNet
+![SHAP summary](results/shap_summary_full.png)
 
----
+The Streamlit prototype also generates patient-level explanations and separates features that increase versus decrease predicted risk. SHAP values are treated as explanations of the model's prediction, **not as causal or medical explanations**.
 
-## Setup & Prerequisites
+## Calibration
+
+For a risk model, ranking patients correctly is not enough: a predicted probability should also have a meaningful relationship with observed risk. The pipeline therefore evaluates probability calibration and applies isotonic calibration.
+
+![Calibration curves before and after calibration](results/calibration_curves_full_before_after.png)
+
+## Project context & my contribution
+
+This project originated as a two-person MSc Data & Computational Science project at **University College Dublin**.
+
+**My technical contribution (Anuja Thuraiyur Jayakumar):** I led and implemented the end-to-end technical work: data extraction, cohort construction, preprocessing, feature and label engineering, temporal leakage auditing, model development and comparison, evaluation, probability calibration, SHAP explainability, sensitivity analysis, and the Streamlit risk-monitoring prototype.
+
+**Project partner contribution (Ruthvik Gowda Bageri Manjunath):** project poster and README/documentation contributions.
+
+The original collaborative academic repository is preserved through this fork's GitHub history and upstream relationship.
+
+## Repository structure
+
+```text
+.
+├── app.py
+├── run_pipeline.py
+├── requirements.txt
+├── src/
+│   ├── 01_data_extraction.py
+│   ├── 02_preprocessing.py
+│   ├── 03_leakage_audit.py
+│   ├── 04_prediction_horizons.py
+│   ├── 05_horizon_sensitivity.py
+│   ├── 06_model_evaluation.py
+│   ├── 07_patient_explanations.py
+│   └── 08_prepare_app.py
+├── results/
+├── docs/
+├── Literature_Review/
+├── poster/
+└── assets/
+```
+
+## Reproducing the pipeline
 
 ### Prerequisites
+
 - Python 3.8+
-- Google Cloud Platform (GCP) account with BigQuery access
-- **PhysioNet account with MIMIC-IV v3.1 access** (REQUIRED)
-- 16GB+ RAM recommended
+- access to **MIMIC-IV v3.1** through PhysioNet
+- Google Cloud / BigQuery access as required by the extraction stage
+- sufficient local memory for preprocessing and model development
 
-### **CRITICAL: Obtaining MIMIC-IV Data**
-
-**You must obtain the dataset directly from PhysioNet. We cannot provide it.**
-
-#### Step 1: Create PhysioNet Account
-1. Visit [PhysioNet Registration](https://physionet.org/register/)
-2. Complete registration with institutional affiliation
-3. Verify your email address
-
-#### Step 2: Request MIMIC-IV Access
-1. Go to [MIMIC-IV v3.1 Project Page](https://physionet.org/content/mimiciv/3.1/)
-2. Click "Request Access"
-3. Complete the credentialing questionnaire:
-   - Describe your intended research use
-   - Specify your institution
-   - Confirm HIPAA training completion
-4. **Wait for approval** (typically 24-48 hours)
-5. Accept the data use agreement
-
-#### Step 3: Download MIMIC-IV Files
-After approval:
-1. Download the following directories from PhysioNet:
-   - `hosp/` directory (contains: patients.csv, admissions.csv, diagnoses_icd.csv)
-   - `icu/` directory (contains: icustays.csv, chartevents.csv, labevents.csv, d_items.csv)
-2. Extract to `./mimic-iv-3.1/` in your project directory
-3. Verify file structure:
-   ```
-   ./mimic-iv-3.1/
-   ├── hosp/
-   │   ├── patients.csv
-   │   ├── admissions.csv
-   │   └── diagnoses_icd.csv
-   └── icu/
-       ├── icustays.csv
-       ├── chartevents.csv
-       ├── labevents.csv
-       └── d_items.csv
-   ```
-
-### Environment Setup
+Install dependencies:
 
 ```bash
-# Clone repository or download project files
-mkdir icu-deterioration
-cd icu-deterioration
+git clone https://github.com/anujatj0011/icu-deterioration-prediction.git
+cd icu-deterioration-prediction
 
-# Create virtual environment
 python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-
-# Install required packages
+source venv/bin/activate       # Windows: venv\Scripts\activate
 pip install --upgrade pip
-pip install pandas numpy scikit-learn xgboost matplotlib seaborn shap joblib google-cloud-bigquery
-
-# Create data directory
-mkdir -p ./data ./results
+pip install -r requirements.txt
 ```
 
-### GCP BigQuery Configuration
-
-1. Create a GCP project
-2. Enable BigQuery API in your GCP console
-3. Create a service account with BigQuery Admin permissions
-4. Download the service account JSON key file
-5. Set environment variable:
-   ```bash
-   export GOOGLE_APPLICATION_CREDENTIALS="/path/to/service-account-key.json"
-   ```
-
-### Update Configuration
-
-Edit each Python script and set your GCP project ID:
-```python
-PROJECT_ID = "your-gcp-project-id"  # Replace with your actual GCP project ID
-```
-
----
-
-## Pipeline Architecture
-
-```
-Phase 1: Feature Engineering
-├─ 01_data_extraction.py
-│  └─ Extract cohort, vitals, labs, demographics (0-6h window)
-├─ 02_preprocessing.py
-│  └─ Validate, clip outliers, aggregate to per-stay statistics
-└─ 03_leakage_audit.py
-   └─ Audit for temporal integrity and data leakage
-
-Phase 2: Label Engineering
-└─ 04_prediction_horizons.py
-   └─ Define deterioration events across 24h/36h/48h horizons
-
-Phase 3: Model Development
-├─ 05_horizon_sensitivity.py
-│  └─ Compare model performance across prediction horizons
-└─ 06_model_evaluation.py
-   └─ Train, calibrate, and evaluate primary models
-
-Phase 4: Explainability & Deployment
-├─ 07_patient_explanations.py
-│  └─ Generate SHAP-based patient-level explanations
-└─ 08_prepare_app.py
-   └─ Package model and features for clinical application
-```
-
----
-
-## Execution Guide
-
-For detailed step-by-step execution instructions, see **[EXECUTION_GUIDE.md](docs/EXECUTION_GUIDE.md)**.
-
-Quick reference:
-
-| Step | Script | Purpose | Output |
-|:---|:---|:---|:---|
-| 1 | `01_data_extraction.py` | Extract features from BigQuery (0-6h window) | `cohort.parquet`, `vitals_raw.parquet`, `labs_raw.parquet` |
-| 2 | `02_preprocessing.py` | Validate, clean, and aggregate features | `feature_matrix_raw.parquet` |
-| 3 | `03_leakage_audit.py --feature-only` | Audit features for data leakage | `leakage_audit_report.txt` |
-| 4 | `04_prediction_horizons.py` | Define outcomes for 24h/36h/48h horizons | `horizon_labels.parquet` |
-| 5 | `03_leakage_audit.py --label-only` | Audit labels for integrity | Verification only |
-| 6 | `05_horizon_sensitivity.py` | Test sensitivity across prediction horizons | Sensitivity plots |
-| 7 | `06_model_evaluation.py` | Train and calibrate final model | `model_artifacts.joblib` |
-| 8 | `07_patient_explanations.py` | Generate SHAP explanations | SHAP plots |
-| 9 | `08_prepare_app.py` | Package for deployment | App-ready model |
-
-**Full pipeline runtime:** 2-4 hours
-
----
-
-## Technical Implementation
-
-For detailed technical documentation, see **[TECHNICAL_GUIDE.md](docs/TECHNICAL_GUIDE.md)**.
-
-Key topics covered:
-- System architecture and data flow
-- Feature engineering and aggregation
-- Model selection and hyperparameters
-- Temporal design and leakage prevention
-- ML implementation details
-- Explainability and SHAP methodology
-- Code examples
-
----
-
-## Key Findings
-
-For detailed key findings documentation, see **[KEY_FINDINGS.md](docs/KEY_FINDINGS.md)**.
-
-Key topics covered:
-- Model Performance
-- Cohort Statistics
-- Model Evaluation & Calibration
-- Performance Evaluation Metrics
-- Global Model Explanations
-- Feature-Specific Dependence Analysis
-- Clinical Implications
-- Methodological Strengths
-
----
-
-## File Structure
-
-```
-icu-deterioration/
-├── README.md (this file)
-├── docs/
-│   ├── EXECUTION_GUIDE.md
-│   ├── TECHNICAL_GUIDE.md
-│   └── (additional documentation)
-├── requirements.txt
-├── 01_data_extraction.py
-├── 02_preprocessing.py
-├── 03_leakage_audit.py
-├── 04_prediction_horizons.py
-├── 05_horizon_sensitivity.py
-├── 06_model_evaluation.py
-├── 07_patient_explanations.py
-├── 08_prepare_app.py
-│
-├── data/                    (generated after running pipeline)
-│   ├── cohort.parquet
-│   ├── feature_matrix_raw.parquet
-│   ├── horizon_labels.parquet
-│   ├── model_artifacts.joblib
-│   └── app_*.parquet, app_*.joblib
-│
-├── results/                 (generated outputs, plots, metrics)
-│   ├── leakage_audit_report.txt
-│   ├── model_comparison_full.csv
-│   ├── roc_curves_full.png
-│   ├── calibration_curves_full_before_after.png
-│   ├── horizon_sensitivity_roc.png
-│   ├── shap_feature_importance_full.png
-│   ├── shap_summary_full.png
-│   ├── shap_dependence_*.png
-│   ├── shap_waterfall_*.png
-│   └── (additional analysis outputs)
-│
-└── mimic-iv-3.1/            (downloaded from PhysioNet - NOT included)
-    ├── hosp/
-    └── icu/
-```
-
----
-
-## Clinical Disclaimer
-
-⚠️ **IMPORTANT LEGAL NOTICE**
-
-This model is provided for **research purposes only** and has **NOT been validated for clinical deployment**.
-
-- Do NOT use in direct patient care without institutional review board (IRB) approval
-- Do NOT use without clinical validation in your specific patient population
-- Model predictions complement clinical judgment; clinician oversight mandatory
-- Ensure compliance with HIPAA, HL7, and relevant healthcare regulations
-- Validate extensively in your clinical environment before any deployment
-
----
-
-## Support
-
-For questions and troubleshooting:
-- Review inline code comments in each script
-- Check [EXECUTION_GUIDE.md](docs/EXECUTION_GUIDE.md) for common issues and step-by-step instructions
-- See [TECHNICAL_GUIDE.md](docs/TECHNICAL_GUIDE.md) for implementation details
-- Consult [PhysioNet documentation](https://physionet.org/content/mimiciv/3.1/) for data questions
-
----
-
-## Reproducibility & Citation
-
-### To Reproduce Results
+Configure the required GCP credentials/project settings, obtain authorised MIMIC-IV access, then run the pipeline from the repository root:
 
 ```bash
-# 1. Obtain MIMIC-IV access from PhysioNet (REQUIRED)
-# Visit https://physionet.org/content/mimiciv/3.1/
-
-# 2. Download MIMIC-IV and extract to ./mimic-iv-3.1/
-
-# 3. Set up environment
-python -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-
-# 4. Configure credentials
-export GOOGLE_APPLICATION_CREDENTIALS="/path/to/key.json"
-# Edit scripts to set PROJECT_ID
-
-# 5. Run pipeline
-python 01_data_extraction.py
-python 02_preprocessing.py
-python 03_leakage_audit.py --feature-only
-python 04_prediction_horizons.py
-python 03_leakage_audit.py --label-only
-python 05_horizon_sensitivity.py
-python 06_model_evaluation.py
-python 07_patient_explanations.py
-python 08_prepare_app.py
+python run_pipeline.py
 ```
 
-### Citing This Project
+After the app artifacts have been generated:
 
-```bibtex
-@dataset{icu_deterioration_2024,
-  title={Explainable AI for Early ICU Deterioration Prediction},
-  author={Anuja Thuraiyur Jayakumar (25203657), Ruthvik Gowda Bageri Manjunath (25205410)},
-  year={2024},
-  note={Implemented using MIMIC-IV v3.1, requires PhysioNet access}
-}
+```bash
+streamlit run app.py
 ```
 
+For stage-by-stage instructions, see [Execution Guide](docs/EXECUTION_GUIDE.md). For implementation details, see [Technical Guide](docs/TECHNICAL_GUIDE.md), and for interpretation of the outputs see [Key Findings](docs/KEY_FINDINGS.md).
+
+## Data access and privacy
+
+**No MIMIC-IV patient-level data is included in this repository.** MIMIC-IV is a credentialed PhysioNet dataset. Anyone reproducing the work must obtain access directly from PhysioNet and comply with the applicable data-use requirements.
+
+This repository contains source code, documentation and aggregate model results/visualisations only. Do not commit raw or derived patient-level MIMIC data to this repository.
+
+## Limitations
+
+- Results are retrospective and come from MIMIC-IV rather than prospective clinical deployment.
+- The model has not undergone external validation on an independent hospital population.
+- The outcome combines multiple deterioration events and therefore should not be interpreted as a diagnosis.
+- SHAP explains model behaviour; it does not establish causality.
+- Alert thresholds in the Streamlit application are prototype controls and are not clinically validated.
+- Performance may change under dataset shift, different clinical workflows or different patient populations.
+
+## Documentation
+
+- [Key findings](docs/KEY_FINDINGS.md)
+- [Technical guide](docs/TECHNICAL_GUIDE.md)
+- [Execution guide](docs/EXECUTION_GUIDE.md)
+- [Model comparison data](results/model_comparison_full.csv)
+- [Prediction-horizon results](results/horizon_sensitivity_xgboost.csv)
+
+## Tech stack
+
+**Python · pandas · NumPy · scikit-learn · XGBoost · SHAP · BigQuery · Streamlit · Matplotlib · joblib**
+
 ---
 
-## Data Use Compliance
-
-**MIMIC-IV Data Use Agreement Requirements**
-
-This code is provided to facilitate research using MIMIC-IV. Users of this code MUST:
-
-1. ✅ Obtain PhysioNet credentials and MIMIC-IV access approval
-2. ✅ Accept the MIMIC-IV Data Use Agreement
-3. ✅ Use the dataset only for approved research purposes
-4. ✅ NOT share de-identified or raw patient data
-5. ✅ NOT include patient data in GitHub repositories
-6. ✅ Comply with all HIPAA regulations
-7. ✅ Acknowledge PhysioNet in publications
-
-**Violation of these requirements may result in loss of data access and legal consequences.**
-
----
-
-**Last Updated:** August 2026  
-**MIMIC-IV Version:** 3.1  
-**Status:** Research Implementation Complete
-
----
-
-**End of README**
+**Dataset:** MIMIC-IV v3.1, PhysioNet  
+**Status:** Research implementation complete  
+**Clinical use:** Not validated for clinical deployment
