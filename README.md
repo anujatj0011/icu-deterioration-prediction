@@ -23,7 +23,7 @@ The repository includes a Streamlit **ICU Early Warning System** that turns the 
 **Model Card**
 - documents intended use, model choice, held-out performance and limitations directly inside the application
 
-> **Public-demo design:** MIMIC-IV patient-level artifacts are intentionally not committed. A public deployment should use synthetic demonstration records rather than restricted MIMIC-derived records.
+> **Public-demo design:** implemented. If restricted local artifacts are absent, the app automatically enters **Synthetic Demonstration Mode**. The public demo uses hand-authored synthetic profiles and illustrative risk scores; it does **not** package MIMIC-IV patient records, MIMIC-derived patient-level artifacts, or the MIMIC-trained model.
 
 To run the full authenticated version after generating local artifacts:
 
@@ -31,7 +31,7 @@ To run the full authenticated version after generating local artifacts:
 streamlit run app.py
 ```
 
-A repository screenshot will be added after the synthetic public-demo mode is implemented so the screenshot reflects the final recruiter-facing experience.
+The app is now ready for a public Streamlit deployment using its synthetic demonstration mode. A screenshot and live-demo badge can be added after the deployed URL is available.
 
 ## What this project demonstrates
 
