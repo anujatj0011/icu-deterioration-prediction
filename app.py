@@ -1,34 +1,17 @@
+"""Research UI; no synthetic records or replacement preprocessing."""
+import os
+import json
+import numpy as np
+import pandas as pd
+import streamlit as st
+import joblib
 from pathlib import Path
 import joblib
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
-import shap
 import streamlit as st
 from sklearn.pipeline import Pipeline
-
-from demo_data import demo_frame
-
-DATA_DIR = Path("./data")
-
-st.set_page_config(
-    page_title="ICU Early Warning | Explainable ML",
-    page_icon="⚕️",
-    layout="wide",
-    initial_sidebar_state="expanded",
-)
-
-st.markdown("""
-<style>
-.block-container {padding-top: 2rem; padding-bottom: 3rem; max-width: 1400px;}
-[data-testid="stMetric"] {background: rgba(127,127,127,.06); border: 1px solid rgba(127,127,127,.18); padding: 14px 16px; border-radius: 12px;}
-.hero {padding: 1.25rem 1.4rem; border: 1px solid rgba(127,127,127,.20); border-radius: 16px; margin-bottom: 1rem;}
-.eyebrow {font-size: .78rem; letter-spacing: .08em; text-transform: uppercase; opacity: .7; font-weight: 700;}
-.hero h1 {margin: .25rem 0 .45rem 0;}
-.hero p {font-size: 1.02rem; opacity: .82; margin-bottom: .25rem;}\n[data-testid="stMetric"] {box-shadow: 0 2px 10px rgba(0,0,0,.03);}\n[data-testid="stSidebar"] {border-right: 1px solid rgba(127,127,127,.12);}\n[data-baseweb="tab-list"] {gap: .65rem;}
-</style>
-""", unsafe_allow_html=True)
-
+DATA_DIR = Path(__file__).resolve().parent / 'data'
 
 def humanize_feature(feature: str):
     units = {"heart_rate":"bpm","sbp":"mmHg","dbp":"mmHg","resp_rate":"breaths/min","spo2":"%",
@@ -81,6 +64,7 @@ def load_local_data():
 
 
 def shap_for_patient(model, x_row):
+    import shap
     if isinstance(model, Pipeline):
         clf=model.named_steps["clf"]; scaler=model.named_steps["scale"]
         transformed=pd.DataFrame(scaler.transform(x_row),columns=x_row.columns,index=x_row.index)
@@ -102,113 +86,181 @@ def local_contributions(explanation, raw_row, top_n=10):
     return pd.DataFrame(rows)
 
 
-# Public deployments have no restricted artifacts, so they automatically enter synthetic mode.
-demo_mode = not local_artifacts_available()
-if demo_mode:
-    monitor=demo_frame()
-    x_imp=x_raw=underlying_model=None
-else:
-    monitor,x_imp,x_raw=load_local_data(); underlying_model=load_model()
 
-st.markdown("""
-<div class="hero"><div class="eyebrow">Explainable machine learning · research prototype</div>
-<h1>ICU Early Warning <span style="color:#c8675c">System</span></h1>
-<p>Estimate deterioration risk from information available during the first 6 hours of ICU admission, then inspect the factors driving each prediction.</p></div>
-""", unsafe_allow_html=True)
 
-m1,m2,m3,m4=st.columns(4)
-m1.metric("◷  Observation window","First 6 h")
-m2.metric("→  Prediction horizon","Next 24 h")
-m3.metric("◎  Research ROC-AUC","0.825")
-m4.metric("↗  Research recall","73.6%")
+import numpy as np
+import pandas as pd
 
-if demo_mode:
-    st.warning("PUBLIC DEMO · SYNTHETIC DATA — Synthetic profiles and illustrative scores only. No MIMIC-IV patient data, MIMIC-derived patient artifacts, or trained MIMIC model is included.")
-else:
-    st.info("LOCAL RESEARCH MODE — Restricted MIMIC-derived artifacts are loaded only from this local environment. Do not deploy these artifacts publicly.")
 
+def validate_input(frame, columns):
+    if len(frame) != 1 or list(frame.columns) != columns:
+        raise ValueError("Provide exactly one row with the complete original feature schema in order.")
+    if not all(pd.api.types.is_numeric_dtype(dtype) for dtype in frame.dtypes):
+        raise ValueError("All prepared features must be numeric.")
+    if not np.isfinite(frame.to_numpy(dtype=float)).all():
+        raise ValueError("Prepared features must contain no missing or infinite values.")
+
+
+def validate_artifacts(monitor, imputed, raw):
+    if monitor.empty:
+        raise ValueError("No research records available.")
+    for frame in (monitor, imputed, raw):
+        if "display_id" not in frame or frame.display_id.isna().any() or frame.display_id.duplicated().any():
+            raise ValueError("Research IDs must be present and unique.")
+    if set(monitor.display_id) != set(imputed.display_id) or set(monitor.display_id) != set(raw.display_id):
+        raise ValueError("Research record IDs do not align.")
+    if list(imputed.columns) != list(raw.columns):
+        raise ValueError("Raw and imputed schemas differ.")
+    probability = pd.to_numeric(monitor.calibrated_probability, errors="raise")
+    if not np.isfinite(probability).all() or not probability.between(0, 1).all():
+        raise ValueError("Calibrated scores must be finite probabilities.")
+
+st.set_page_config(page_title="ICU Observatory · Research", page_icon="◈", layout="wide")
+st.markdown('''<style>
+.block-container{max-width:1400px;padding-top:2rem;padding-bottom:3rem}
+h1,h2,h3{letter-spacing:-.035em}h1{font-size:3rem!important}
+[data-testid="stSidebar"]{border-right:1px solid #DDE6EC}
+[data-testid="stMetric"]{background:white;border:1px solid #DDE6EC;border-radius:16px;padding:20px}
+.eyebrow{color:#007F78;font-size:.73rem;letter-spacing:.16em;font-weight:750}
+.hero{background:linear-gradient(120deg,#FFF 55%,#E4F1F1);border:1px solid #DDE6EC;border-radius:22px;padding:32px;margin:16px 0 22px}
+.hero p,.empty p{color:#526A7A;max-width:720px}
+.tag{display:inline-block;background:#E0F1ED;color:#006A64;border-radius:30px;padding:6px 12px;font-size:.75rem;font-weight:700}
+.empty{border:1px dashed #ADC3CE;border-radius:18px;background:#FFF;padding:38px 28px;margin:14px 0}
+.score{background:#102C3D;border-radius:20px;padding:28px;color:#FFF;margin:12px 0}
+.score strong{font-size:3.6rem;display:block;letter-spacing:-.05em}
+.track{height:10px;background:#375466;border-radius:10px;overflow:hidden;margin:16px 0}.fill{height:100%;background:#65D5C6}
+[data-baseweb="tab-list"]{gap:24px}
+@media(max-width:700px){h1{font-size:2.1rem!important}.hero{padding:22px}.empty{padding:24px}}
+</style>''', unsafe_allow_html=True)
+ready = os.environ.get("ICU_ENABLE_LOCAL_RESEARCH") == "1" and local_artifacts_available()
 with st.sidebar:
-    st.markdown("### ICU Early Warning"); st.caption("XGBoost research pipeline · calibrated risk · SHAP")
-    st.divider(); st.header("Alert settings")
-    moderate_threshold=st.slider("Moderate-risk threshold",0.05,0.70,0.30,0.05)
-    high_threshold=st.slider("High-risk alert threshold",0.10,0.95,0.50,0.05)
-    if moderate_threshold>=high_threshold: st.error("Moderate threshold must be lower than high-risk threshold."); st.stop()
-    st.caption("Prototype thresholds — not clinically validated.")
+    st.markdown("## ◈ ICU Observatory")
+    st.caption("EXPLAINABLE ML / RESEARCH")
+    st.divider()
+    st.markdown("### Workspace")
+    st.write("Local research" if ready else "Public demonstration")
+    st.caption("Observation: ICU hours 0–6\n\nOutcome window: hours 6–30")
+    st.divider()
+    bands = st.slider("Score bands (%)", 0, 100, (30, 50))
+    moderate, high = [v / 100 for v in bands]
+    if moderate >= high:
+        st.error("Choose two distinct thresholds.")
+        st.stop()
+    st.caption("Exploratory display settings. Thresholds are not clinically validated and do not change predictions.")
+    st.divider()
+    st.caption("Research prototype. No clinical alerts or treatment recommendations.")
+st.markdown('<div class="eyebrow">RESEARCH WORKSPACE / EARLY DETERIORATION</div>', unsafe_allow_html=True)
+st.markdown('''<div class="hero"><span class="tag">RESEARCH PROTOTYPE</span><h1>A clearer view of<br>ICU deterioration risk.</h1><p>Explore the research model’s output, inspect the information behind it, and understand its limits in one transparent workspace.</p></div>''', unsafe_allow_html=True)
+st.warning("Not for clinical use. This research prototype has not been clinically validated or approved for patient-care decisions. Do not enter identifiable patient information.")
+st.caption("LOCAL RESEARCH MODE · Authorized artifacts loaded" if ready else "PUBLIC MODE · No patient records, model predictions or illustrative scores loaded")
+if ready:
+    try:
+        monitor, x_imp, x_raw = load_local_data()
+        model = load_model()
+        validate_artifacts(monitor, x_imp, x_raw)
+    except Exception:
+        st.error("Research artifacts failed validation. Check their schema, completeness and package versions locally.")
+        st.stop()
+patient, population, about = st.tabs(["01  Patient workspace", "02  Cohort overview", "03  Method & limitations"])
 
-monitor=monitor.copy()
-monitor["risk_category"]=monitor["calibrated_probability"].map(lambda p:risk_category(float(p),moderate_threshold,high_threshold))
-monitor_tab,patient_tab,model_tab=st.tabs(["Population Risk Monitor","Patient Explanation","Model Card"])
+def render_score(p, source):
+    if not np.isfinite(p) or not 0 <= p <= 1:
+        raise ValueError("Invalid estimator probability.")
+    category = risk_category(p, moderate, high)
+    st.markdown(f'<div class="score">24-HOUR MODEL ESTIMATE<strong>{p:.1%}</strong>{category} score band<div class="track"><div class="fill" style="width:{p*100:.2f}%"></div></div>{source}</div>', unsafe_allow_html=True)
+    st.caption("Bands follow sidebar settings. A lower score does not establish safety; a higher score is not a diagnosis.")
 
-with monitor_tab:
-    n_high=int((monitor.calibrated_probability>=high_threshold).sum())
-    n_mod=int(((monitor.calibrated_probability>=moderate_threshold)&(monitor.calibrated_probability<high_threshold)).sum())
-    c1,c2,c3,c4=st.columns(4)
-    c1.metric("Profiles monitored",f"{len(monitor):,}"); c2.metric("High-risk alerts",f"{n_high:,}")
-    c3.metric("Moderate risk",f"{n_mod:,}"); c4.metric("Low risk",f"{len(monitor)-n_high-n_mod:,}")
-    display=monitor[["display_id","calibrated_probability","risk_category"]].copy()
-    display.calibrated_probability=display.calibrated_probability.map(lambda x:f"{x:.1%}")
-    display.columns=["Profile","Illustrative risk score","Risk category"]
-    st.markdown("### Priority review queue")
-    if demo_mode:
-        chart = monitor[["display_id","calibrated_probability"]].copy().set_index("display_id")
-        st.caption("Illustrative risk landscape")
-        st.bar_chart(chart, height=230, use_container_width=True)
-    st.caption("In public demo mode these are synthetic interface examples, not real patients or model predictions.")
-    st.dataframe(display,use_container_width=True,hide_index=True,height=360)
+def explain(row, raw):
+    st.markdown("### What influenced the underlying model?")
+    st.caption("SHAP describes the underlying model before calibration. Contributions are not percentage-point changes in the calibrated score and do not establish medical causality.")
+    try:
+        with st.spinner("Computing model explanation…"):
+            explanation = shap_for_patient(model, row)
+            contributions = local_contributions(explanation, raw, 12)
+        import matplotlib.pyplot as plt
+        fig, ax = plt.subplots(figsize=(8, 4.5))
+        chart = contributions.sort_values("SHAP value")
+        ax.barh(chart["Feature"], chart["SHAP value"], color=["#C17B56" if x > 0 else "#007F78" for x in chart["SHAP value"]])
+        ax.axvline(0, color="#A4B4BF", linewidth=.8)
+        ax.set_xlabel("SHAP contribution · underlying model output")
+        ax.spines[["top", "right", "left"]].set_visible(False)
+        fig.tight_layout()
+        st.pyplot(fig, use_container_width=True)
+        plt.close(fig)
+        with st.expander("Inspect explanation values"):
+            st.dataframe(contributions, hide_index=True, use_container_width=True)
+    except Exception:
+        st.info("An explanation is unavailable for this estimator or row. The calibrated score is unchanged.")
 
-with patient_tab:
-    selected_id=st.selectbox("Select profile",monitor.display_id.tolist())
-    mrow=monitor.loc[monitor.display_id==selected_id].iloc[0]
-    probability=float(mrow.calibrated_probability); category=risk_category(probability,moderate_threshold,high_threshold)
-    a,b,c=st.columns(3); a.metric("Illustrative risk score" if demo_mode else "Predicted 24h risk",f"{probability:.1%}"); b.metric("Risk category",category); c.metric("Prediction horizon","Next 24 h")
-    if demo_mode:
-        st.markdown("### What is shaping this illustrative score?")
-        st.caption("The factors below are authored synthetic examples for demonstrating the intended explanation workflow; they are not SHAP outputs.")
-        left,right=st.columns(2)
-        with left:
-            st.markdown("**Factors increasing illustrative score**")
-            for item in mrow["drivers_up"]: st.write(f"↑ {item}")
-        with right:
-            st.markdown("**Factors decreasing illustrative score**")
-            for item in mrow["drivers_down"]: st.write(f"↓ {item}")
-        st.markdown("### Synthetic profile snapshot")
-        feature_cols=["age","heart_rate_last","sbp_last","resp_rate_last","spo2_last","lactate_last","creatinine_last","platelets_last","gcs_verbal_last"]
-        rows=[]
-        for f in feature_cols:
-            label,value=format_value(f,mrow[f]); rows.append({"Feature":label,"Synthetic value":value})
-        st.dataframe(pd.DataFrame(rows),hide_index=True,use_container_width=True)
+with patient:
+    left, right = st.columns([1.1, 1.4], gap="large")
+    with left:
+        st.markdown("### Patient input")
+        st.caption("Use prepared research features from the original pipeline. Single vital signs cannot replace the full observation window.")
+        if not ready:
+            st.selectbox("Research record", [], placeholder="No authorized records loaded", disabled=True)
+            st.button("Review model output", disabled=True, use_container_width=True)
+            st.info("Prepare the original artifacts and enable local research mode. See the local setup section in README.md.")
+        else:
+            selected = st.selectbox("Research record", monitor.display_id.tolist())
+            row = x_imp.set_index("display_id").loc[[selected]]
+            raw = x_raw.set_index("display_id").loc[selected]
+            with st.expander("Observation-window inputs", expanded=True):
+                snapshot = [dict(Feature=format_value(f, v)[0], Value=format_value(f, v)[1]) for f, v in raw.items()]
+                st.dataframe(pd.DataFrame(snapshot), hide_index=True, height=360, use_container_width=True)
+    with right:
+        if not ready:
+            st.markdown('''<div class="empty"><div class="eyebrow">AWAITING RESEARCH INPUT</div><h3>Evidence first. Then an estimate.</h3><p>A risk visualization and explanation will appear here when authorized research artifacts are available.</p><p>No probability is shown without a real model output.</p></div>''', unsafe_allow_html=True)
+        else:
+            p = float(monitor.set_index("display_id").loc[selected, "calibrated_probability"])
+            render_score(p, "Stored calibrated output · original pipeline")
+            explain(row, raw)
+    with st.expander("Advanced input · run the calibrated estimator"):
+        st.write("Upload one complete, already imputed feature row as CSV. Names and order must match the original matrix. No imputation, scaling or feature engineering is added here.")
+        bundle_path = DATA_DIR / "model_artifacts.joblib"
+        if not ready or not bundle_path.exists():
+            st.info("Requires local research mode and model_artifacts.joblib including calibrated_model. Raw-vitals prediction is unavailable because the original pipeline does not export its fitted imputer.")
+        else:
+            st.download_button("Download schema (no patient values)", json.dumps(list(row.columns), indent=2), "feature_schema.json")
+            uploaded = st.file_uploader("Prepared feature row · no identifiers", type=["csv"])
+            if uploaded is not None and st.button("Run research inference", type="primary"):
+                try:
+                    entered = pd.read_csv(uploaded)
+                    validate_input(entered, list(row.columns))
+                    estimator = joblib.load(bundle_path)["calibrated_model"]
+                    positive = list(estimator.classes_).index(1)
+                    probability = float(estimator.predict_proba(entered)[0, positive])
+                    render_score(probability, "Fresh inference · original calibrated estimator")
+                    explain(entered, entered.iloc[0])
+                except ValueError as exc:
+                    st.error(str(exc))
+                except Exception:
+                    st.error("Inference failed. Check artifact compatibility locally.")
+with population:
+    st.markdown("### Cohort overview")
+    st.caption("Retrospective research view. No continuous monitoring or clinical alerts.")
+    if not ready:
+        for col, title in zip(st.columns(3), ["Loaded records", "Above upper threshold", "Median model score"]):
+            col.metric(title, "—")
+        st.info("No cohort loaded. Actual artifact scores appear in local research mode.")
     else:
-        x_row=x_imp.loc[x_imp.display_id==selected_id].drop(columns=["display_id"])
-        raw_row=x_raw.loc[x_raw.display_id==selected_id].drop(columns=["display_id"]).iloc[0]
-        with st.spinner("Generating patient-level SHAP explanation..."):
-            explanation=shap_for_patient(underlying_model,x_row); contrib=local_contributions(explanation,raw_row,12)
-        st.subheader("Why was this patient assigned this risk?")
-        st.caption("SHAP explains model behaviour, not medical causality.")
-        pos=contrib[contrib["SHAP value"]>0].head(5); neg=contrib[contrib["SHAP value"]<0].head(5)
-        left,right=st.columns(2)
-        with left:
-            st.markdown("**Factors increasing predicted risk**")
-            for _,r in pos.iterrows(): st.write(f"↑ **{r['Feature']}** — {r['Patient value']}")
-        with right:
-            st.markdown("**Factors decreasing predicted risk**")
-            for _,r in neg.iterrows(): st.write(f"↓ **{r['Feature']}** — {r['Patient value']}")
-        readable=[humanize_feature(f)[0] for f in explanation.feature_names]
-        exp=shap.Explanation(values=explanation.values,base_values=explanation.base_values,data=explanation.data,feature_names=readable)
-        shap.plots.waterfall(exp,max_display=10,show=False); plt.tight_layout(); st.pyplot(plt.gcf(),clear_figure=True,use_container_width=True)
-
-with model_tab:
-    st.subheader("Model card")
-    st.markdown("""
-**Research question** — Can information available in the first 6 ICU hours identify elevated deterioration risk over the following 24 hours?
-
-**Dataset & cohort** — MIMIC-IV v3.1; first ICU stay per patient with ≥12 hours ICU length of stay. The 24-hour analysis contains **46,982 eligible ICU stays**.\n\n**Temporal design** — Time-varying predictors are restricted to hours **0–6** after ICU admission. The primary outcome window is the subsequent **24 hours (6–30h)**.\n\n**Outcome** — Composite deterioration event defined from mortality, vasopressor requirement, or mechanical ventilation within the prediction window.\n\n**Research pipeline** — Logistic Regression, Random Forest and XGBoost comparison; explicit temporal leakage audits; isotonic probability calibration; global and patient-level SHAP.
-
-**Held-out research results** — ROC-AUC **0.825** · PR-AUC **0.716** · Recall **73.6%** · F1 **0.670**.
-
-**Public demo boundary** — The deployed interface uses hand-authored synthetic profiles and illustrative risk scores. The restricted MIMIC-derived model and patient-level artifacts are not packaged with the public application.
-
-**Limitations** — Retrospective MIMIC-IV analysis; no prospective or external validation. The research model is not a medical device and is not intended for patient-care decisions.
-""")
-
+        display = monitor.copy()
+        display["Score band"] = display.calibrated_probability.map(lambda p: risk_category(p, moderate, high))
+        for col, title, value in zip(st.columns(3), ["Loaded records", "Above upper threshold", "Median model score"], [f"{len(display):,}", f"{(display.calibrated_probability >= high).sum():,}", f"{display.calibrated_probability.median():.1%}"]):
+            col.metric(title, value)
+        selected_bands = st.multiselect("Show bands", ["Low", "Moderate", "High"], default=["Low", "Moderate", "High"])
+        display = display[display["Score band"].isin(selected_bands)].sort_values("calibrated_probability", ascending=False)
+        st.dataframe(display, hide_index=True, use_container_width=True, column_config={"calibrated_probability": st.column_config.ProgressColumn("Calibrated score", min_value=0, max_value=1, format="%.3f")})
+with about:
+    st.markdown("### Understand the model before its output")
+    a, b = st.columns(2, gap="large")
+    with a:
+        st.markdown("#### Temporal design\nPredictors use the first **6 ICU hours**. The primary outcome window is **hours 6–30**. The research outcome combines mortality, vasopressor requirement and mechanical ventilation.")
+        st.markdown("#### Original pipeline\nLogistic regression, random forest and XGBoost comparison; temporal leakage audits; isotonic calibration; SHAP. Preprocessing and evaluation scripts are retained unchanged.")
+    with b:
+        st.markdown("#### Evidence boundary\nThe source reports retrospective MIMIC-IV v3.1 experiments. Performance is not independently verified here and does not establish prospective clinical utility.")
+        st.markdown("#### Intended use\nEducation and authorized retrospective research only. No prospective or external validation is established. Do not use scores for diagnosis, triage, escalation or treatment.")
+    st.markdown("#### Privacy & deployment\nPublic mode contains no patient examples. Restricted artifacts require explicit local opt-in. Streamlit caches are shared within a server process; use an authorized single-tenant environment. The interface does not deliberately write uploads or predictions to disk.")
+    st.link_button("Original research repository", "https://github.com/anujatj0011/icu-deterioration-prediction")
 st.divider()
-st.caption("Portfolio research prototype · MIMIC-IV v3.1 research results · public interface uses synthetic demo profiles only · not for clinical use")
+st.caption("◈ ICU Observatory / Research prototype · Not a medical device · Not for clinical use")
