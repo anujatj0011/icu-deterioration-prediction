@@ -8,36 +8,47 @@ End-to-end machine learning pipeline for predicting ICU deterioration from the *
 
 ### Explore the project
 
-**[Launch the live synthetic demo](https://anujatj0011-icu-deterioration-prediction-app-01bzpt.streamlit.app/)** · **[Technical guide](docs/TECHNICAL_GUIDE.md)** · **[Key findings](docs/KEY_FINDINGS.md)** · **[Execution guide](docs/EXECUTION_GUIDE.md)**
+**[Open the research workspace](https://anujatj0011-icu-deterioration-prediction-app-01bzpt.streamlit.app/)** · **[Technical guide](docs/TECHNICAL_GUIDE.md)** · **[Key findings](docs/KEY_FINDINGS.md)** · **[Execution guide](docs/EXECUTION_GUIDE.md)**
 
-The live Streamlit deployment is deliberately separated from the restricted research artifacts: it uses hand-authored synthetic profiles and illustrative scores while the repository documents the real MIMIC-IV modelling pipeline and aggregate research results.
+The Streamlit interface separates public demonstration from restricted local research. Public mode displays an empty workspace without fabricated patients or scores.
 
-## Application demo
+## Application workspace
 
-The repository includes a Streamlit **ICU Early Warning System** that turns the modelling pipeline into an interpretable decision-support prototype.
+**ICU Observatory** provides a responsive patient workspace, calibrated-score visualization, retrospective cohort filters, underlying-model SHAP contributions and research-use limitations. The implementation stays in `app.py`; preprocessing, training and evaluation scripts remain unchanged.
 
-**Population Risk Monitor**
-- ranks cases by calibrated 24-hour deterioration risk
-- supports interactive moderate/high alert thresholds
-- provides an at-a-glance priority review queue
+### Public deployment
 
-**Patient Explanation**
-- displays an individual calibrated risk estimate
-- separates factors increasing and decreasing predicted risk
-- renders a patient-level SHAP waterfall with readable clinical feature labels
+Install `requirements.txt` and run `python -m streamlit run app.py`. In Streamlit Community Cloud, keep `app.py` as the entry point and leave `ICU_ENABLE_LOCAL_RESEARCH` unset. Push these source changes and reboot the existing deployment if needed. Do not publish `data/`, credentials or model bundles. No extra application modules are required.
 
-**Model Card**
-- documents intended use, model choice, held-out performance and limitations directly inside the application
+### Local research setup
 
-> **Public-demo design:** implemented. If restricted local artifacts are absent, the app automatically enters **Synthetic Demonstration Mode**. The public demo uses hand-authored synthetic profiles and illustrative risk scores; it does **not** package MIMIC-IV patient records, MIMIC-derived patient-level artifacts, or the MIMIC-trained model.
+Generate the original pipeline artifacts, including `python src/08_prepare_app.py`. The app expects these trusted files in `data/` beside `app.py`:
 
-To run the full authenticated version after generating local artifacts:
+- `app_patient_monitor.csv`
+- `app_test_features_imputed.parquet`
+- `app_test_features_raw.parquet`
+- `app_underlying_model.joblib`
 
-```bash
-streamlit run app.py
+Explicitly enable local research before launching:
+
+```powershell
+# Windows PowerShell
+$env:ICU_ENABLE_LOCAL_RESEARCH="1"
+python -m streamlit run app.py
 ```
 
-**Live deployment:** [Open the ICU Early Warning System](https://anujatj0011-icu-deterioration-prediction-app-01bzpt.streamlit.app/)\n\nThe deployed application automatically uses Synthetic Demonstration Mode and does not package the restricted MIMIC-derived model or patient-level artifacts.
+```bash
+# macOS / Linux
+ICU_ENABLE_LOCAL_RESEARCH=1 python -m streamlit run app.py
+```
+
+Existing records use their original stored calibrated probabilities. Advanced CSV inference additionally requires the original `data/model_artifacts.joblib` with `calibrated_model`. Upload exactly one numeric, finite, already imputed feature row with the complete original schema in order. The interface provides a download of feature names without patient values. It invokes the original calibrated estimator and uses class `1` as the deterioration outcome.
+
+Raw-vitals inference is unavailable because the original bundle does not export the fitted imputer. Do not invent missing engineered inputs or fit replacement imputation on test data. SHAP contributions explain the underlying estimator before calibration, not percentage-point changes in the calibrated score or medical causality.
+
+Use a trusted model-compatible training environment for saved estimators. Load only trusted joblib files. Local mode has no authentication layer; use an authorized single-tenant environment because Streamlit caches are shared within a server process. It must not be enabled on the public deployment.
+
+**Validation boundary:** public startup and input-validation smoke checks passed. Original private-model inference and browser-level visual rendering have not been independently verified. No clinical validation is claimed.
 
 ## What this project demonstrates
 
@@ -183,7 +194,7 @@ Configure the required GCP credentials/project settings, obtain authorised MIMIC
 python run_pipeline.py
 ```
 
-After the app artifacts have been generated:
+After generating app artifacts, enable local research as described above, then run:
 
 ```bash
 streamlit run app.py
