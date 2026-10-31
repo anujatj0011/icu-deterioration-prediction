@@ -10,15 +10,15 @@ End-to-end machine learning pipeline for predicting ICU deterioration from the *
 
 **[Open the research workspace](https://anujatj0011-icu-deterioration-prediction-app-01bzpt.streamlit.app/)** · **[Technical guide](docs/TECHNICAL_GUIDE.md)** · **[Key findings](docs/KEY_FINDINGS.md)** · **[Execution guide](docs/EXECUTION_GUIDE.md)**
 
-The Streamlit interface separates public demonstration from restricted local research. Public mode displays an empty workspace without fabricated patients or scores.
+The Streamlit interface separates public demonstration from restricted local research. Public mode is an interactive research explorer using the original aggregate result files, without fabricated patients or scores.
 
 ## Application workspace
 
-**ICU Observatory** provides a responsive patient workspace, calibrated-score visualization, retrospective cohort filters, underlying-model SHAP contributions and research-use limitations. The implementation stays in `app.py`; preprocessing, training and evaluation scripts remain unchanged.
+**ICU Observatory** opens with a compact research overview, interactive model comparisons, outcome-horizon summaries and original aggregate evaluation figures. The results explorer reads the existing CSV and PNG files in `results/`; all metrics are labelled as retrospective study results, not live-app performance. Patient controls and exploratory thresholds appear only in authorized local research mode, which retains calibrated-score visualization, retrospective cohort filters and underlying-model SHAP contributions. The implementation stays in `app.py`; preprocessing, training and evaluation scripts remain unchanged.
 
 ### Public deployment
 
-Install `requirements.txt` and run `python -m streamlit run app.py`. In Streamlit Community Cloud, keep `app.py` as the entry point and leave `ICU_ENABLE_LOCAL_RESEARCH` unset. Push these source changes and reboot the existing deployment if needed. Do not publish `data/`, credentials or model bundles. No extra application modules are required.
+Install `requirements.txt` and run `python -m streamlit run app.py`. In Streamlit Community Cloud, keep `app.py` as the entry point and leave `ICU_ENABLE_LOCAL_RESEARCH` unset. Push these source changes and reboot the existing deployment if needed. Do not publish `data/`, credentials or model bundles. No extra application modules are required. Keep the tracked aggregate CSV and PNG files in `results/` in the deployment; these are used by the public explorer. Streamlit 1.50 or newer is required by the updated UI.
 
 ### Local research setup
 
